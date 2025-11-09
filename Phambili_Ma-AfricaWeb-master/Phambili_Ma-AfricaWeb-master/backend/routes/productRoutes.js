@@ -1,0 +1,117 @@
+// productRoutes.js - FIXED VERSION
+const express = require('express');
+const { body } = require('express-validator');
+const router = express.Router();
+const productController = require('../controllers/productController');
+const validate = require('../middleware/validate');
+const auth = require('../middleware/auth');
+const { upload } = require('../middleware/upload'); // FIXED: Destructure upload
+const { Product } = require('../models'); // Added missing Product import
+
+// ==================== PUBLIC ROUTES ====================
+router.get('/public/products', async (req, res) => {
+  try {
+    console.log('📋 Fetching public products...');
+    
+    const products = await Product.findAll({
+      where: { Is_Available: true },
+      order: [['created_at', 'DESC']]
+    });
+    
+    console.log(`✅ Found ${products.length} available products`);
+    
+    // Convert image URLs to full URLs
+    const productsWithFullUrls = products.map(product => {
+      const productData = product.toJSON();
+      if (productData.Image_URL) {
+        productData.Image_URL = `http://localhost:3000${productData.Image_URL}`;
+      }
+      return productData;
+    });
+    
+    res.json({ 
+      success: true,
+      products: productsWithFullUrls
+    });
+  } catch (err) {
+    console.error('❌ Public products error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching products' 
+    });
+  }
+});
+
+// Get single product details (public)
+router.get('/public/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📋 Fetching public product details for ID: ${id}`);
+
+    const product = await Product.findByPk(id, {
+      attributes: [
+        'ID',
+        'Name',
+        'Description',
+        'Price',
+        'Stock_Quantity',
+        'Category',
+        'Is_Available',
+        'Image_URL',
+        'created_at'
+      ]
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    // Convert image URL to full URL
+    const productData = product.toJSON();
+    if (productData.Image_URL) {
+      productData.Image_URL = `http://localhost:3000${productData.Image_URL}`;
+    }
+
+    console.log(`✅ Found product: ${productData.Name}`);
+    
+    res.json({
+      success: true,
+      product: productData
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching product details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching product details'
+    });
+  }
+});
+
+// ==================== PROTECTED ROUTES ====================
+router.use(auth);
+
+router.post(
+  '/',
+  upload.single('image'), // This will now work with destructured upload
+  [
+    body('Name').notEmpty().withMessage('Product name is required'),
+    body('Price').isDecimal({ min: 0 }).withMessage('Price must be a positive number'),
+    body('Stock_Quantity').isInt({ min: 0 }).withMessage('Stock quantity must be a positive number')
+  ],
+  validate,
+  productController.createProduct
+);
+
+router.get('/', productController.getProducts);
+router.get('/:id', productController.getProductById);
+router.put('/:id', upload.single('image'), productController.updateProduct);
+router.delete('/:id', productController.deleteProduct);
+router.patch('/:id/availability', [
+  body('isAvailable').isBoolean()
+], validate, productController.toggleProductAvailability);
+
+module.exports = router;
